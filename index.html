@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Manga Reader</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; background: #f4f4f4; }
+    h1 { text-align: center; }
+    input { width: 60%; padding: 10px; margin: 10px 0; }
+    button { padding: 10px; cursor: pointer; }
+    .manga-list { display: flex; flex-wrap: wrap; gap: 20px; }
+    .manga { background: white; padding: 10px; border-radius: 8px; width: 150px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+    .manga img { width: 100%; border-radius: 5px; }
+    .chapters { margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h1>Simple Manga Reader</h1>
+  <input id="searchBox" placeholder="Search manga...">
+  <button onclick="searchManga()">Search</button>
+
+  <div id="results" class="manga-list"></div>
+
+  <script>
+    async function searchManga() {
+      const query = document.getElementById('searchBox').value.trim();
+      if (!query) return alert("Enter manga name!");
+
+      const res = await fetch(`/api/manga?title=${encodeURIComponent(query)}`);
+      const data = await res.json();
+
+      const results = document.getElementById('results');
+      results.innerHTML = "";
+
+      if (!data.results || data.results.length === 0) {
+        results.innerHTML = "<p>No results found.</p>";
+        return;
+      }
+
+      data.results.forEach(m => {
+        const div = document.createElement('div');
+        div.className = 'manga';
+        div.innerHTML = `
+          <img src="${m.image}" alt="${m.title}">
+          <h3>${m.title}</h3>
+          <div class="chapters">
+            <button onclick="viewManga('${m.id}')">View Chapters</button>
+          </div>
+        `;
+        results.appendChild(div);
+      });
+    }
+
+    async function viewManga(id) {
+      const res = await fetch(`https://api.jikan.moe/v4/manga/${id}/chapters`);
+      const data = await res.json();
+
+      const results = document.getElementById('results');
+      results.innerHTML = `<h2>Chapters</h2>`;
+
+      if (!data.data || data.data.length === 0) {
+        results.innerHTML += "<p>No chapters found.</p>";
+        return;
+      }
+
+      data.data.forEach(chap => {
+        const div = document.createElement('div');
+        div.innerHTML = `
+          <p>
+            <strong>${chap.title || "Chapter " + chap.mal_id}</strong>
+            <button onclick="readChapter('${chap.url}')">Read</button>
+            <button onclick="downloadChapter('${chap.url}')">Download</button>
+          </p>
+        `;
+        results.appendChild(div);
+      });
+    }
+
+    function readChapter(url) {
+      window.open(url, "_blank");
+    }
+
+    function downloadChapter(url) {
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = "chapter.html";
+      a.click();
+    }
+  </script>
+</body>
+</html>
