@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Simple Manga Reader</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #111;
+      color: #fff;
+      margin: 0;
+      padding: 20px;
+      text-align: center;
+    }
+    h1 { color: #f39c12; }
+    input {
+      padding: 10px;
+      width: 60%;
+      border-radius: 6px;
+      border: none;
+      margin: 10px 0;
+    }
+    button {
+      padding: 10px 15px;
+      margin: 5px;
+      border: none;
+      border-radius: 6px;
+      background: #f39c12;
+      color: #fff;
+      cursor: pointer;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 15px;
+      margin-top: 20px;
+    }
+    .card {
+      background: #222;
+      padding: 10px;
+      border-radius: 8px;
+    }
+    img {
+      width: 100%;
+      border-radius: 6px;
+    }
+    .reader img {
+      width: 80%;
+      margin: 10px auto;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <h1>📚 Simple Manga Reader</h1>
+  <input id="searchBox" placeholder="Search manga...">
+  <button onclick="searchManga()">Search</button>
+
+  <div id="results" class="grid"></div>
+  <div id="chapters"></div>
+  <div id="reader" class="reader"></div>
+
+  <script>
+    async function searchManga() {
+      let query = document.getElementById("searchBox").value;
+      let res = await fetch(`https://api.mangadex.org/manga?title=${query}&limit=10`);
+      let data = await res.json();
+      let results = document.getElementById("results");
+      results.innerHTML = "";
+      document.getElementById("chapters").innerHTML = "";
+      document.getElementById("reader").innerHTML = "";
+
+      data.data.forEach(manga => {
+        let coverFile = manga.relationships.find(r => r.type === "cover_art")?.id;
+        let coverUrl = coverFile 
+          ? `https://uploads.mangadex.org/covers/${manga.id}/${coverFile}.256.jpg` 
+          : "";
+
+        let div = document.createElement("div");
+        div.className = "card";
+        div.innerHTML = `
+          <img src="${coverUrl}" alt="">
+          <h3>${manga.attributes.title.en || "No Title"}</h3>
+          <button onclick="loadChapters('${manga.id}')">📖 Read</button>
+        `;
+        results.appendChild(div);
+      });
+    }
+
+    async function loadChapters(mangaId) {
+      let res = await fetch(`https://api.mangadex.org/manga/${mangaId}/feed?translatedLanguage[]=en&limit=20`);
+      let data = await res.json();
+      let chapters = document.getElementById("chapters");
+      chapters.innerHTML = "<h2>Chapters</h2>";
+
+      data.data.forEach(ch => {
+        let div = document.createElement("div");
+        div.innerHTML = `
+          <button onclick="readChapter('${ch.id}')">Read Ch ${ch.attributes.chapter || "?"}</button>
+          <button onclick="downloadChapter('${ch.id}')">⬇️ Download</button>
+        `;
+        chapters.appendChild(div);
+      });
+    }
+
+    async function readChapter(chapterId) {
+      let res = await fetch(`https://api.mangadex.org/at-home/server/${chapterId}`);
+      let data = await res.json();
+      let reader = document.getElementById("reader");
+      reader.innerHTML = "<h2>Reader</h2>";
+
+      data.chapter.data.forEach(img => {
+        let url = `${data.baseUrl}/data/${data.chapter.hash}/${img}`;
+        reader.innerHTML += `<img src="${url}">`;
+      });
+    }
+
+    async function downloadChapter(chapterId) {
+      let res = await fetch(`https://api.mangadex.org/at-home/server/${chapterId}`);
+      let data = await res.json();
+
+      for (let img of data.chapter.data) {
+        let url = `${data.baseUrl}/data/${data.chapter.hash}/${img}`;
+        let a = document.createElement("a");
+        a.href = url;
+        a.download = img;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
+      alert("Images are downloading! 📥");
+    }
+  </script>
+</body>
+</html>
