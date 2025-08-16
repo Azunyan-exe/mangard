@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mini Tachiyomi (Offline Support)</title>
+  <style>
+    body { font-family: sans-serif; background: #111; color: #eee; margin: 0; padding: 10px; }
+    input { width: 70%; padding: 10px; border-radius: 6px; border: none; }
+    button { padding: 10px; border: none; border-radius: 6px; background: cyan; margin: 5px; cursor: pointer; }
+    .manga, .chapter { margin: 10px 0; padding: 10px; background: #222; border-radius: 8px; }
+    img { width: 120px; border-radius: 6px; display: block; margin: 5px 0; }
+    #reader img { width: 100%; max-width: 800px; margin: auto; display: block; }
+  </style>
+</head>
+<body>
+  <h1>📚 Mini Tachiyomi</h1>
+  <input id="searchBox" placeholder="Search manga...">
+  <button onclick="searchManga()">Search</button>
+  <button onclick="showDownloads()">📥 Offline Library</button>
+
+  <div id="results"></div>
+  <div id="chapters"></div>
+  <div id="reader"></div>
+  <div id="downloads"></div>
+
+<script>
+const API = "https://api.mangadex.org";
+
+// IndexedDB setup
+let db;
+function openDB() {
+  return new Promise((resolve, reject) => {
+    let req = indexedDB.open("mini-tachi", 1);
+    req.onupgradeneeded = (e) => {
+      let db = e.target.result;
+      db.createObjectStore("chapters", { keyPath: "id" });
+    };
+    req.onsuccess = () => { db = req.result; resolve(db); };
+    req.onerror = () => reject(req.error);
+  });
+}
+async function saveChapter(chapter) {
+  if (!db) await openDB();
+  return new Promise((resolve, reject) => {
+    let tx = db.transaction("chapters", "readwrite");
+    tx.objectStore("chapters").put(chapter);
+    tx.oncomplete = resolve;
+    tx.onerror = reject;
+  });
+}
+async function getAllChapters() {
+  if (!db) await openDB();
+  return new Promise((resolve, reject) => {
+    let tx = db.transaction("chapters", "readonly");
+    let req = tx.objectStore("chapters").getAll();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = reject;
+  });
+}
+
+// Search Manga
+async function searchManga() {
+  let q = document.getElementById("searchBox").value;
+  let res = await fetch(`${API}/manga?title=${q}&limit=5`);
+  let data = await res.json();
+  let results = document.getElementById("results");
+  results.innerHTML = "";
+  document.getElementById("chapters").innerHTML = "";
+  document.getElementById("reader").innerHTML = "";
+
+  for (let manga of data.data) {
+    let title = manga.attributes.title.en || "No Title";
+    let id = manga.id;
+    let coverRes = await fetch(`${API}/cover?manga[]=${id}`);
+    let coverData = await coverRes.json();
+    let coverFile = coverData.data[0]?.attributes?.fileName;
+    let coverUrl = coverFile ? `https://uploads.mangadex.org/covers/${id}/${coverFile}` : "";
+
+    let div = document.createElement("div");
+    div.className = "manga";
+    div.innerHTML = `<h3>${title}</h3>
+                     <img src="${coverUrl}" alt="cover">
+                     <button onclick="loadChapters('${id}', '${title}', '${coverUrl}')">View Chapters</button>`;
+    results.appendChild(div);
+  }
+}
+
+// Load Chapters
+async function loadChapters(mangaId, title, coverUrl) {
+  let res = await fetch(`${API}/chapter?manga=${mangaId}&limit=10&translatedLanguage[]=en`);
+  let data = await res.json();
+  let chapters = document.getElementById("chapters");
+  chapters.innerHTML = `<h2>${title}</h2>`;
+
+  for (let ch of data.data) {
+    let num = ch.attributes.chapter || "?";
+    let id = ch.id;
+    let div = document.createElement("div");
+    div.className = "chapter";
+    div.innerHTML = `Chapter ${num}
+                     <button onclick="readChapter('${id}', '${title}', '${num}')">Read</button>
+                     <button onclick="downloadChapter('${id}', '${title}', '${num}')">Download</button>`;
+    chapters.appendChild(div);
+  }
+}
+
+// Read Online
+async function readChapter(chapterId, title, num) {
+  let res = await fetch(`${API}/at-home/server/${chapterId}`);
+  let data = await res.json();
+  let base = data.baseUrl;
+  let hash = data.chapter.hash;
+  let images = data.chapter.data;
+
+  let reader = document.getElementById("reader");
+  reader.innerHTML = `<h2>${title} - Chapter ${num}</h2>`;
+  images.forEach(img => {
+    let url = `${base}/data/${hash}/${img}`;
+    reader.innerHTML += `<img src="${url}">`;
+  });
+}
+
+// Download Chapter for Offline Reading
+async function downloadChapter(chapterId, title, num) {
+  let res = await fetch(`${API}/at-home/server/${chapterId}`);
+  let data = await res.json();
+  let base = data.baseUrl;
+  let hash = data.chapter.hash;
+  let images = data.chapter.data;
+
+  // Fetch and convert to base64
+  let pages = [];
+  for (let img of images) {
+    let url = `${base}/data/${hash}/${img}`;
+    let blob = await fetch(url).then(r => r.blob());
+    let reader = new FileReader();
+    let base64 = await new Promise(resolve => {
+      reader.onload = () => resolve(reader.result);
+      reader.readAsDataURL(blob);
+    });
+    pages.push(base64);
+  }
+
+  let record = { id: chapterId, title, num, pages };
+  await saveChapter(record);
+  alert(`Downloaded ${title} - Chapter ${num}`);
+}
+
+// Show Downloads
+async function showDownloads() {
+  let downloads = await getAllChapters();
+  let div = document.getElementById("downloads");
+  div.innerHTML = "<h2>Offline Library</h2>";
+  for (let chap of downloads) {
+    let d = document.createElement("div");
+    d.className = "chapter";
+    d.innerHTML = `${chap.title} - Chapter ${chap.num}
+                   <button onclick='readOffline("${chap.id}")'>Read Offline</button>`;
+    div.appendChild(d);
+  }
+}
+
+// Read Offline
+async function readOffline(id) {
+  let downloads = await getAllChapters();
+  let chap = downloads.find(c => c.id === id);
+  if (!chap) return alert("Not found");
+  let reader = document.getElementById("reader");
+  reader.innerHTML = `<h2>${chap.title} - Chapter ${chap.num} (Offline)</h2>`;
+  chap.pages.forEach(p => {
+    reader.innerHTML += `<img src="${p}">`;
+  });
+}
+</script>
+</body>
+</html>
