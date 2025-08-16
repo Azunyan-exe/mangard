@@ -1,3 +1,0 @@
-# mangardr
-testingtesting
-rookie 
